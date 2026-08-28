@@ -14,12 +14,6 @@ The node uses the [megajs](https://mega.js.org) library, which talks to MEGA's A
 
 ## Installation
 
-### Community nodes (if published to npm)
-
-In n8n, go to Settings, then Community Nodes, then Install, and enter the package name.
-
-### Manual install into the custom extensions directory
-
 n8n loads any `*.node.js` and `*.credentials.js` file it finds under `~/.n8n/custom`, where `~` is the home directory of the user the n8n process runs as.
 
 ```bash

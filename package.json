@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "description": "n8n community node for MEGA cloud storage with per-credential multi-account support",
   "keywords": [
-    "n8n-community-node-package",
     "n8n",
     "mega",
     "mega.nz",
