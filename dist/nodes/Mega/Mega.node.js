@@ -11,6 +11,9 @@ const {
 	linkNode,
 	collectChildren,
 	splitPath,
+	openPublicLink,
+	findInShare,
+	downloadNode,
 } = require('./GenericFunctions');
 
 class Mega {
@@ -31,7 +34,11 @@ class Mega {
 				{
 					name: 'megaApi',
 					required: true,
-					displayOptions: { show: { authentication: ['credentials'] } },
+					displayOptions: {
+						show: { authentication: ['credentials'] },
+						// Share links carry their own key, so no account is involved.
+						hide: { resource: ['sharedLink'] },
+					},
 				},
 			],
 			properties: [
@@ -54,6 +61,7 @@ class Mega {
 						},
 					],
 					default: 'credentials',
+					displayOptions: { hide: { resource: ['sharedLink'] } },
 				},
 				{
 					displayName: 'Email',
@@ -62,7 +70,10 @@ class Mega {
 					default: '',
 					required: true,
 					placeholder: '={{ $json.email }}',
-					displayOptions: { show: { authentication: ['inputFields'] } },
+					displayOptions: {
+						show: { authentication: ['inputFields'] },
+						hide: { resource: ['sharedLink'] },
+					},
 				},
 				{
 					displayName: 'Password',
@@ -72,7 +83,10 @@ class Mega {
 					default: '',
 					required: true,
 					placeholder: '={{ $json.password }}',
-					displayOptions: { show: { authentication: ['inputFields'] } },
+					displayOptions: {
+						show: { authentication: ['inputFields'] },
+						hide: { resource: ['sharedLink'] },
+					},
 				},
 				{
 					displayName: 'Two-Factor Secret',
@@ -81,7 +95,10 @@ class Mega {
 					typeOptions: { password: true },
 					default: '',
 					description: 'Optional base32 TOTP secret. Leave empty if the account has no 2FA.',
-					displayOptions: { show: { authentication: ['inputFields'] } },
+					displayOptions: {
+						show: { authentication: ['inputFields'] },
+						hide: { resource: ['sharedLink'] },
+					},
 				},
 
 				/* ---------------- resource ---------------- */
@@ -93,9 +110,108 @@ class Mega {
 					options: [
 						{ name: 'File', value: 'file' },
 						{ name: 'Folder', value: 'folder' },
+						{ name: 'Shared Link', value: 'sharedLink' },
 						{ name: 'Account', value: 'account' },
 					],
 					default: 'file',
+				},
+
+				/* ---------------- shared link operations ---------------- */
+				{
+					displayName: 'Operation',
+					name: 'operation',
+					type: 'options',
+					noDataExpression: true,
+					displayOptions: { show: { resource: ['sharedLink'] } },
+					options: [
+						{
+							name: 'List',
+							value: 'list',
+							action: 'List a shared folder',
+							description: 'List the files inside a folder someone shared with you',
+						},
+						{
+							name: 'Download All',
+							value: 'downloadAll',
+							action: 'Download a shared folder',
+							description:
+								'Download every file in a shared folder, one output item per file',
+						},
+						{
+							name: 'Download',
+							value: 'download',
+							action: 'Download from a shared link',
+							description: 'Download a single shared file, or one file from inside a shared folder',
+						},
+					],
+					default: 'list',
+				},
+				{
+					displayName: 'Share Link',
+					name: 'linkUrl',
+					type: 'string',
+					default: '',
+					required: true,
+					placeholder: 'https://mega.nz/folder/AbCdEfGh#TheDecryptionKey',
+					displayOptions: { show: { resource: ['sharedLink'] } },
+					description:
+						'The full MEGA link including the key after the #. Folder and file links are both accepted, old #F! style links too. No credential is needed.',
+				},
+				{
+					displayName: 'Path Inside Folder',
+					name: 'sharedFilePath',
+					type: 'string',
+					default: '',
+					placeholder: '/subfolder/report.pdf',
+					displayOptions: { show: { resource: ['sharedLink'], operation: ['download'] } },
+					description:
+						'Only needed when the link points at a folder. Leave empty when the link points directly at a file.',
+				},
+				{
+					displayName: 'Put Output File in Field',
+					name: 'outputBinaryField',
+					type: 'string',
+					default: 'data',
+					required: true,
+					displayOptions: {
+						show: { resource: ['sharedLink'], operation: ['download', 'downloadAll'] },
+					},
+				},
+				{
+					displayName: 'Options',
+					name: 'shareOptions',
+					type: 'collection',
+					placeholder: 'Add Option',
+					default: {},
+					displayOptions: {
+						show: { resource: ['sharedLink'], operation: ['list', 'downloadAll'] },
+					},
+					options: [
+						{
+							displayName: 'Include Subfolders',
+							name: 'recursive',
+							type: 'boolean',
+							default: true,
+							description: 'Whether to descend into subfolders of the shared folder',
+						},
+						{
+							displayName: 'Limit',
+							name: 'limit',
+							type: 'number',
+							typeOptions: { minValue: 1 },
+							default: 100,
+							description: 'Max number of files to return',
+						},
+						{
+							displayName: 'Name Filter',
+							name: 'nameFilter',
+							type: 'string',
+							default: '',
+							placeholder: '.pdf',
+							description:
+								'Only include files whose name contains this text, case insensitive. Leave empty for all files.',
+						},
+					],
 				},
 
 				/* ---------------- file operations ---------------- */
@@ -366,8 +482,78 @@ class Mega {
 				const operation = this.getNodeParameter('operation', i);
 
 				try {
-					const storage = await getStorage(i);
 					let output;
+
+					/* ------------------------- SHARED LINK ------------------------- *
+					 * A public link carries its own decryption key, so this branch
+					 * never logs in and never touches a credential.
+					 * --------------------------------------------------------------- */
+					if (resource === 'sharedLink') {
+						const linkUrl = this.getNodeParameter('linkUrl', i);
+						const opts = this.getNodeParameter('shareOptions', i, {});
+						const root = await openPublicLink(linkUrl);
+
+						if (operation === 'download') {
+							const sharedFilePath = this.getNodeParameter('sharedFilePath', i, '');
+							const outputBinaryField = this.getNodeParameter('outputBinaryField', i);
+							const target = findInShare(root, sharedFilePath);
+							if (target.directory) {
+								throw new Error(
+									`"${target.name}" is a folder, not a file. Set Path Inside Folder to a file, or use the Download All operation.`,
+								);
+							}
+							const buffer = await downloadNode(target);
+							returnData.push({
+								json: { ...nodeToJson(target), sourceLink: linkUrl },
+								binary: {
+									[outputBinaryField]: await this.helpers.prepareBinaryData(
+										buffer,
+										target.name,
+									),
+								},
+								pairedItem: { item: i },
+							});
+							continue;
+						}
+
+						// List and Download All work from the same file set.
+						const limit = opts.limit || 100;
+						const nameFilter = String(opts.nameFilter || '').toLowerCase();
+						let files = root.directory
+							? collectChildren(root, opts.recursive !== false).filter((n) => !n.directory)
+							: [root];
+						if (nameFilter !== '') {
+							files = files.filter((f) =>
+								String(f.name || '').toLowerCase().includes(nameFilter),
+							);
+						}
+						files = files.slice(0, limit);
+
+						if (operation === 'list') {
+							for (const f of files) {
+								returnData.push({
+									json: { ...nodeToJson(f), sourceLink: linkUrl },
+									pairedItem: { item: i },
+								});
+							}
+							continue;
+						}
+
+						const outputBinaryField = this.getNodeParameter('outputBinaryField', i);
+						for (const f of files) {
+							const buffer = await downloadNode(f);
+							returnData.push({
+								json: { ...nodeToJson(f), sourceLink: linkUrl },
+								binary: {
+									[outputBinaryField]: await this.helpers.prepareBinaryData(buffer, f.name),
+								},
+								pairedItem: { item: i },
+							});
+						}
+						continue;
+					}
+
+					const storage = await getStorage(i);
 
 					/* ------------------------- FILE ------------------------- */
 					if (resource === 'file' && operation === 'upload') {

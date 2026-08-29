@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
-const { Storage } = require('megajs');
+const { Storage, File } = require('megajs');
 
 const USER_AGENT = 'n8n-nodes-mega-multi/1.0.0';
 
@@ -177,6 +177,85 @@ function linkNode(node, noKey) {
 	});
 }
 
+/* ------------------------------------------------------------------ *
+ *  Public share links
+ *
+ *  A MEGA link carries its own decryption key in the URL fragment, so
+ *  these need no account and no credential at all.
+ * ------------------------------------------------------------------ */
+
+/**
+ * Opens a public MEGA link and loads its metadata. For a folder link the
+ * whole node tree comes back decrypted, so `.children` is populated and
+ * behaves like any other folder node.
+ */
+async function openPublicLink(url) {
+	const clean = String(url || '').trim();
+	if (clean === '') {
+		throw new Error('A MEGA share link is required');
+	}
+
+	let node;
+	try {
+		node = File.fromURL(clean);
+	} catch (error) {
+		throw new Error(
+			`Not a valid MEGA link: ${(error && error.message) || String(error)}. Expected something like https://mega.nz/folder/AbCdEfGh#TheDecryptionKey`,
+		);
+	}
+
+	if (!node.key) {
+		throw new Error(
+			'This link has no decryption key. A MEGA link is only usable with the key after the # in the URL.',
+		);
+	}
+
+	try {
+		await node.loadAttributes();
+	} catch (error) {
+		const message = (error && error.message) || String(error);
+		if (/bandwidth|quota|ETEMPUNAVAIL|EOVERQUOTA/i.test(message)) {
+			throw new Error(
+				`MEGA reports a bandwidth or quota limit on this link (${message}). The limit belongs to the account that owns the link, so it cannot be lifted from this side.`,
+			);
+		}
+		if (/ENOENT|EACCESS|EKEY|not found/i.test(message)) {
+			throw new Error(
+				`The link could not be opened (${message}). It may have been removed, or the key may be wrong or truncated.`,
+			);
+		}
+		throw new Error(`Could not open the MEGA link: ${message}`);
+	}
+
+	return node;
+}
+
+/** Walks a path down from the root of a shared folder. */
+function findInShare(root, path) {
+	const parts = splitPath(path);
+	let node = root;
+	for (const segment of parts) {
+		if (!node.children) {
+			throw new Error(`"${node.name}" is not a folder, cannot descend into "${segment}"`);
+		}
+		const next = node.children.find((c) => c.name === segment);
+		if (!next) {
+			throw new Error(
+				`Not found inside the shared folder: "${segment}" (while resolving "${path}")`,
+			);
+		}
+		node = next;
+	}
+	return node;
+}
+
+/** Promisified download to a Buffer. */
+function downloadNode(node) {
+	return new Promise((resolve, reject) => {
+		node.downloadBuffer({}, (err, buffer) => (err ? reject(err) : resolve(buffer)));
+	});
+}
+
 /** Recursively collect descendants of a folder. */
 function collectChildren(folder, recursive, acc = []) {
 	for (const child of folder.children || []) {
@@ -198,4 +277,7 @@ module.exports = {
 	deleteNode,
 	linkNode,
 	collectChildren,
+	openPublicLink,
+	findInShare,
+	downloadNode,
 };

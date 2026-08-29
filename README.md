@@ -67,6 +67,22 @@ A common pattern is to keep the account list in a database or a Google Sheet, re
 
 Within a single execution the node logs in once per distinct email address and reuses that session for every item belonging to it, then closes all sessions when the execution finishes. Processing two hundred files across three accounts performs three logins, not two hundred.
 
+## Reading folders shared with you
+
+A MEGA share link carries its own decryption key in the fragment after the `#`. That key is all that is needed to read the contents, so the Shared Link resource works with no credential configured at all. The credential field is hidden when this resource is selected.
+
+All the usual link styles are accepted:
+
+```
+https://mega.nz/folder/AbCdEfGh#TheDecryptionKey
+https://mega.nz/file/XyZw1234#TheDecryptionKey
+https://mega.nz/#F!AbCdEfGh!TheDecryptionKey
+```
+
+Opening a folder link fetches the entire node tree in a single request and decrypts the filenames locally, so List returns everything including nested subfolders without one request per folder.
+
+Bandwidth on a share link is charged to the account that owns it, not to you. If that owner runs out, operations fail with a quota error you cannot resolve from your side. The node reports that case with a specific message rather than a generic failure.
+
 ## Operations
 
 ### File
@@ -88,6 +104,16 @@ Within a single execution the node logs in once per distinct email address and r
 | Delete | Moves a folder to the rubbish bin, or erases it permanently. |
 | List | Lists the contents of a folder, files and subfolders. |
 | Get Share Link | Creates a public folder link. |
+
+### Shared Link
+
+Needs no credential.
+
+| Operation | Description |
+| --- | --- |
+| List | Lists the files in a shared folder link. Recursive by default, with an optional name filter. |
+| Download All | Downloads every file in a shared folder, one output item per file, each carrying its own binary. |
+| Download | Downloads a single shared file. For a folder link, set Path Inside Folder to select one file. |
 
 ### Account
 
@@ -132,6 +158,15 @@ Upload adds a `link` field when the Return Share Link option is enabled. Delete 
    * Options: enable Create Missing Folders and Return Share Link
 
 The output item carries the MEGA path and the public link, ready to post to Slack, write to a database, or send by email.
+
+## Example: pull a folder someone shared with you
+
+1. MEGA node, Resource Shared Link, Operation Download All.
+   * Share Link: the URL you were sent
+   * Options: Include Subfolders on, Limit high enough to cover the folder, Name Filter if you only want certain file types
+2. Do whatever you like with the files. To copy them into your own MEGA, follow with a second MEGA node set to Resource File, Operation Upload.
+
+The first node needs no credential. The second one needs the account you are uploading into.
 
 ## Notes and limitations
 
