@@ -69,7 +69,7 @@ Within a single execution the node logs in once per distinct email address and r
 
 ## Reading folders shared with you
 
-A MEGA share link carries its own decryption key in the fragment after the `#`. That key is all that is needed to read the contents, so the Shared Link resource works with no credential configured at all. The credential field is hidden when this resource is selected.
+A MEGA share link carries its own decryption key in the fragment after the `#`. In principle that key is all that is needed, but MEGA often blocks anonymous requests from server and datacenter IPs with `EBLOCKED (-16)`. The Shared Link resource therefore logs in with a credential by default and opens the link using that session. Set Authentication to **None (Shared Link Only)** to open links anonymously.
 
 All the usual link styles are accepted:
 
@@ -107,7 +107,7 @@ Bandwidth on a share link is charged to the account that owns it, not to you. If
 
 ### Shared Link
 
-Needs no credential.
+Uses a credential by default (any MEGA account works, it does not need access to the folder). Can be set to None to open links anonymously.
 
 | Operation | Description |
 | --- | --- |
@@ -166,7 +166,7 @@ The output item carries the MEGA path and the public link, ready to post to Slac
    * Options: Include Subfolders on, Limit high enough to cover the folder, Name Filter if you only want certain file types
 2. Do whatever you like with the files. To copy them into your own MEGA, follow with a second MEGA node set to Resource File, Operation Upload.
 
-The first node needs no credential. The second one needs the account you are uploading into.
+Both nodes need a credential. The first can be any account; the second must be the account you are uploading into.
 
 ## Notes and limitations
 

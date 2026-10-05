@@ -189,7 +189,7 @@ function linkNode(node, noKey) {
  * whole node tree comes back decrypted, so `.children` is populated and
  * behaves like any other folder node.
  */
-async function openPublicLink(url) {
+async function openPublicLink(url, api) {
 	const clean = String(url || '').trim();
 	if (clean === '') {
 		throw new Error('A MEGA share link is required');
@@ -197,7 +197,7 @@ async function openPublicLink(url) {
 
 	let node;
 	try {
-		node = File.fromURL(clean);
+		node = File.fromURL(clean, api ? { api } : {});
 	} catch (error) {
 		throw new Error(
 			`Not a valid MEGA link: ${(error && error.message) || String(error)}. Expected something like https://mega.nz/folder/AbCdEfGh#TheDecryptionKey`,
@@ -224,7 +224,23 @@ async function openPublicLink(url) {
 				`The link could not be opened (${message}). It may have been removed, or the key may be wrong or truncated.`,
 			);
 		}
+		if (/EBLOCKED/.test(message) && !api) {
+			throw new Error(
+				`MEGA blocked the anonymous request (${message}). Set Authentication to a MEGA credential so the link is opened with a logged-in session.`,
+			);
+		}
 		throw new Error(`Could not open the MEGA link: ${message}`);
+	}
+
+	// megajs gives child nodes the anonymous global API, so downloads would
+	// skip the session. Point every descendant at the logged-in API instead.
+	if (api) {
+		const stack = [...(node.children || [])];
+		while (stack.length) {
+			const child = stack.pop();
+			child.api = api;
+			if (child.children) stack.push(...child.children);
+		}
 	}
 
 	return node;

@@ -36,8 +36,6 @@ class Mega {
 					required: true,
 					displayOptions: {
 						show: { authentication: ['credentials'] },
-						// Share links carry their own key, so no account is involved.
-						hide: { resource: ['sharedLink'] },
 					},
 				},
 			],
@@ -59,9 +57,14 @@ class Mega {
 							description:
 								'Take email and password from fields below, which can be expressions. Use this to loop over many MEGA accounts in one workflow.',
 						},
+						{
+							name: 'None (Shared Link Only)',
+							value: 'none',
+							description:
+								'Open a shared link without logging in. MEGA often blocks anonymous requests from server IPs, so a login is recommended.',
+						},
 					],
 					default: 'credentials',
-					displayOptions: { hide: { resource: ['sharedLink'] } },
 				},
 				{
 					displayName: 'Email',
@@ -72,7 +75,6 @@ class Mega {
 					placeholder: '={{ $json.email }}',
 					displayOptions: {
 						show: { authentication: ['inputFields'] },
-						hide: { resource: ['sharedLink'] },
 					},
 				},
 				{
@@ -85,7 +87,6 @@ class Mega {
 					placeholder: '={{ $json.password }}',
 					displayOptions: {
 						show: { authentication: ['inputFields'] },
-						hide: { resource: ['sharedLink'] },
 					},
 				},
 				{
@@ -97,7 +98,6 @@ class Mega {
 					description: 'Optional base32 TOTP secret. Leave empty if the account has no 2FA.',
 					displayOptions: {
 						show: { authentication: ['inputFields'] },
-						hide: { resource: ['sharedLink'] },
 					},
 				},
 
@@ -485,13 +485,16 @@ class Mega {
 					let output;
 
 					/* ------------------------- SHARED LINK ------------------------- *
-					 * A public link carries its own decryption key, so this branch
-					 * never logs in and never touches a credential.
+					 * The link carries its own decryption key, but MEGA blocks many
+					 * anonymous requests (EBLOCKED) from server IPs. Unless set to
+					 * None, log in first and open the link with that session.
 					 * --------------------------------------------------------------- */
 					if (resource === 'sharedLink') {
 						const linkUrl = this.getNodeParameter('linkUrl', i);
 						const opts = this.getNodeParameter('shareOptions', i, {});
-						const root = await openPublicLink(linkUrl);
+						const authentication = this.getNodeParameter('authentication', i, 'credentials');
+						const api = authentication === 'none' ? undefined : (await getStorage(i)).api;
+						const root = await openPublicLink(linkUrl, api);
 
 						if (operation === 'download') {
 							const sharedFilePath = this.getNodeParameter('sharedFilePath', i, '');
@@ -553,6 +556,9 @@ class Mega {
 						continue;
 					}
 
+					if (this.getNodeParameter('authentication', i, 'credentials') === 'none') {
+						throw new Error('Authentication "None" only works with the Shared Link resource. Pick a credential for this operation.');
+					}
 					const storage = await getStorage(i);
 
 					/* ------------------------- FILE ------------------------- */
